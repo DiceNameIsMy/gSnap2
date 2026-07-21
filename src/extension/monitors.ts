@@ -159,6 +159,18 @@ function getWorkArea(monitor: Monitor): WorkArea {
     return result;
 }
 
-export function getCurrentMonitorIndex() : number {
+export function getMousePointerMonitorIndex() : number {
     return global.display.get_current_monitor();
+}
+
+/**
+ * Monitor index of a focused window. When focused window is absent 
+ * falls back to the monitor where a mouse pointer is at.
+ */
+export function getFocusedWindowMonitorIndex(): number {
+    const focusWindow = global.display.focus_window;
+    if (focusWindow) {
+        return focusWindow.get_monitor();
+    }
+    return getMousePointerMonitorIndex();
 }

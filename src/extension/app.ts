@@ -30,7 +30,8 @@ import {
 
 import {
     activeMonitors,
-    getCurrentMonitorIndex,
+    getMousePointerMonitorIndex,
+    getFocusedWindowMonitorIndex,
     getWindowsOfMonitor,
 } from './monitors';
 
@@ -249,7 +250,7 @@ export default class App extends Extension {
         }
 
         if (monitorIndex === -1) {
-            monitorIndex = getCurrentMonitorIndex();
+            monitorIndex = getFocusedWindowMonitorIndex();
         }
 
         this.currentLayoutIdxPerMonitor[monitorIndex] = layoutIndex;
@@ -525,7 +526,7 @@ export default class App extends Extension {
     }
 
     moveFocusedWindow(direction: MoveDirection) {
-        let monitorIndex = getCurrentMonitorIndex();
+        let monitorIndex = getFocusedWindowMonitorIndex();
         const monitor = activeMonitors()[monitorIndex];
         if (!monitor) return;
 
@@ -656,11 +657,11 @@ export default class App extends Extension {
         let cancelEditingButton = new PopupMenu.PopupMenuItem(_("Cancel Editing"));
         let newLayoutButton = new PopupMenu.PopupMenuItem(_("Create New Layout"));
 
-        const currentMonitorLayoutIdx = this.currentLayoutIdxPerMonitor[getCurrentMonitorIndex()];
+        const currentMonitorLayoutIdx = this.currentLayoutIdxPerMonitor[getMousePointerMonitorIndex()];
         const currentLayout = this.layouts.definitions[currentMonitorLayoutIdx];
         let renameLayoutButton = new PopupMenu.PopupMenuItem(_("Rename: " + currentLayout.name));
 
-        let currentMonitorIndex = getCurrentMonitorIndex();
+        let currentMonitorIndex = getMousePointerMonitorIndex();
         if (this.editor[currentMonitorIndex] != null) {
             this.indicator.menu.addMenuItem(resetLayoutButton);
             this.indicator.menu.addMenuItem(saveLayoutButton);
@@ -695,7 +696,7 @@ export default class App extends Extension {
 
 
         renameLayoutButton.connect('activate', () => {
-            const currentMonitorLayoutIdx = this.currentLayoutIdxPerMonitor[getCurrentMonitorIndex()];
+            const currentMonitorLayoutIdx = this.currentLayoutIdxPerMonitor[getMousePointerMonitorIndex()];
             const currentMonitorLayout = this.layouts.definitions[currentMonitorLayoutIdx];
 
             let dialog = new LayoutNameDialog(
