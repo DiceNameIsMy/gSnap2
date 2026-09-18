@@ -1,6 +1,6 @@
 # gSnap2
 
-For of https://github.com/GnomeSnapExtensions/gSnap.
+Fork of https://github.com/GnomeSnapExtensions/gSnap.
 
 Gnome-shell extension that allows you to move windows into specific regions similiar to FancyZones on windows.
 
