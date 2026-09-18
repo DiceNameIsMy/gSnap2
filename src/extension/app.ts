@@ -21,6 +21,7 @@ import { LayoutNameDialog } from "./dialogs";
 
 import {
     Display,
+    MaximizeFlags,
     MetaSizeChange,
     Rectangle,
     Window,
@@ -30,7 +31,8 @@ import {
 
 import {
     activeMonitors,
-    getCurrentMonitorIndex,
+    getMousePointerMonitorIndex,
+    getFocusedWindowMonitorIndex,
     getWindowsOfMonitor,
 } from './monitors';
 
@@ -249,7 +251,7 @@ export default class App extends Extension {
         }
 
         if (monitorIndex === -1) {
-            monitorIndex = getCurrentMonitorIndex();
+            monitorIndex = getFocusedWindowMonitorIndex();
         }
 
         this.currentLayoutIdxPerMonitor[monitorIndex] = layoutIndex;
@@ -525,7 +527,7 @@ export default class App extends Extension {
     }
 
     moveFocusedWindow(direction: MoveDirection) {
-        let monitorIndex = getCurrentMonitorIndex();
+        let monitorIndex = getFocusedWindowMonitorIndex();
         const monitor = activeMonitors()[monitorIndex];
         if (!monitor) return;
 
@@ -551,19 +553,26 @@ export default class App extends Extension {
         let x = frameRect.x + (frameRect.width / 2);
         let y = frameRect.y + (frameRect.height / 2);
 
-        // add/remove 2 to avoid zone not being recognized due to rounding errors
+        // Move the center position to outside of the window
         switch (direction) {
+            // add/remove 2 to avoid zone not being recognized due to rounding errors
+
+            // min/max the point in order stay within the screen bounds
             case MoveDirection.Up:
-                y = frameRect.y - (2 + zoneManager.margin);
+                const minHeight = zoneManager.y + 2;
+                y = Math.max(frameRect.y - (2 + zoneManager.margin), minHeight);
                 break;
             case MoveDirection.Down:
-                y = frameRect.y + frameRect.height + (2 + zoneManager.margin);
+                const maxHeight = zoneManager.y + zoneManager.height - 2;
+                y = Math.min(frameRect.y + frameRect.height + (2 + zoneManager.margin), maxHeight);
                 break;
             case MoveDirection.Left:
-                x = frameRect.x - (2 + zoneManager.margin);
+                const minWidth = zoneManager.x + 2;
+                x = Math.max(frameRect.x - (2 + zoneManager.margin), minWidth);
                 break;
             case MoveDirection.Right:
-                x = frameRect.x + frameRect.width + (2 + zoneManager.margin);
+                const maxWidth = zoneManager.x + zoneManager.width - 2;
+                x = Math.min(frameRect.x + frameRect.width + (2 + zoneManager.margin), maxWidth);
                 break;
         }
 
@@ -582,6 +591,9 @@ export default class App extends Extension {
 
     private moveWindow(window: Window, x: number, y: number, width: number, height: number) {
         log(`moveWindow moving to x:${x}, y:${y}`);
+        if (window.maximized_horizontally || window.maximized_vertically) {
+            window.unmaximize(MaximizeFlags.BOTH);
+        }
         if (getBoolSetting(SETTINGS.ANIMATIONS_ENABLED)) {
             const windowActor = window.get_compositor_private();
             windowActor.remove_all_transitions();
@@ -656,11 +668,11 @@ export default class App extends Extension {
         let cancelEditingButton = new PopupMenu.PopupMenuItem(_("Cancel Editing"));
         let newLayoutButton = new PopupMenu.PopupMenuItem(_("Create New Layout"));
 
-        const currentMonitorLayoutIdx = this.currentLayoutIdxPerMonitor[getCurrentMonitorIndex()];
+        const currentMonitorLayoutIdx = this.currentLayoutIdxPerMonitor[getMousePointerMonitorIndex()];
         const currentLayout = this.layouts.definitions[currentMonitorLayoutIdx];
         let renameLayoutButton = new PopupMenu.PopupMenuItem(_("Rename: " + currentLayout.name));
 
-        let currentMonitorIndex = getCurrentMonitorIndex();
+        let currentMonitorIndex = getMousePointerMonitorIndex();
         if (this.editor[currentMonitorIndex] != null) {
             this.indicator.menu.addMenuItem(resetLayoutButton);
             this.indicator.menu.addMenuItem(saveLayoutButton);
@@ -695,7 +707,7 @@ export default class App extends Extension {
 
 
         renameLayoutButton.connect('activate', () => {
-            const currentMonitorLayoutIdx = this.currentLayoutIdxPerMonitor[getCurrentMonitorIndex()];
+            const currentMonitorLayoutIdx = this.currentLayoutIdxPerMonitor[getMousePointerMonitorIndex()];
             const currentMonitorLayout = this.layouts.definitions[currentMonitorLayoutIdx];
 
             let dialog = new LayoutNameDialog(
