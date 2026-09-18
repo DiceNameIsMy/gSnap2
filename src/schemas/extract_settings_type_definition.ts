@@ -52,8 +52,8 @@ async function main() {
         gschema_xml: {
             type: 'string',
             demandOption: true,
-            description: 'path to schemas/org.gnome.shell.extensions.gsnap.gschema.xml',
-            default: "schemas/org.gnome.shell.extensions.gsnap.gschema.xml"
+            description: 'path to schemas/org.gnome.shell.extensions.gsnap2.gschema.xml',
+            default: "schemas/org.gnome.shell.extensions.gsnap2.gschema.xml"
         },
         output_ts: {
             type: 'string',

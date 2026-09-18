@@ -767,7 +767,7 @@ export class ZoneDisplay extends ZoneGroup {
 
         this.workArea = getWorkAreaByMonitor(this.monitor);
         this.stage = new Clutter.Actor({
-            name: 'gsnap-stage',
+            name: 'gsnap2-stage',
             visible: false,
             width: 1000,
             height: 1000,

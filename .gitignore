@@ -1,7 +1,7 @@
 /node_modules/
-/.idea/.idea.gSnap.dir/.idea/
+/.idea/.idea.gSnap2.dir/.idea/
 bazel-bin
-bazel-gSnap
+bazel-gSnap2
 bazel-out
 bazel-testlogs
 dist/

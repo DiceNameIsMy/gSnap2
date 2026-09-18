@@ -49,7 +49,7 @@ export default defineConfig([
                     { src: 'src/stylesheet.css', dest: 'dist/' },
                     { src: 'src/images', dest: 'dist/' },
                     { src: 'src/schemas/gschemas.compiled', dest: 'dist/schemas' },
-                    { src: 'src/schemas/org.gnome.shell.extensions.gsnap.gschema.xml', dest: 'dist/schemas' },
+                    { src: 'src/schemas/org.gnome.shell.extensions.gsnap2.gschema.xml', dest: 'dist/schemas' },
                 ]
             })
         ],

@@ -226,7 +226,7 @@ export default class GSnapPreferences extends ExtensionPreferences {
         logo.set_from_file(`${super.path}/images/icon.png`);
 
         const nameLabel = new Gtk.Label({
-            label: `<b>gSnap</b>`,
+            label: `<b>gSnap2</b>`,
             xalign: .5,
             margin_top: 10,
             margin_bottom: 5,
@@ -259,11 +259,11 @@ export default class GSnapPreferences extends ExtensionPreferences {
         this.add_linkbutton(
             group,
             'Contribute to the project',
-            'https://github.com/GnomeSnapExtensions/gSnap');
+            'https://github.com/DiceNameIsMy/gSnap2');
         this.add_linkbutton(
             group,
             'Report a bug',
-            'https://github.com/GnomeSnapExtensions/gSnap/issues');
+            'https://github.com/DiceNameIsMy/gSnap2/issues');
 
         return group;
     }

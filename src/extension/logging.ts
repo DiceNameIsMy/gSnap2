@@ -16,11 +16,11 @@ export function setLoggingEnabled(enabled: boolean): void {
  * debug variable is set to true.
  *
  * Debug messages may be viewed using the bash command `journalctl
- * /usr/bin/gnome-shell` and grepping the results for 'gSnap'.
+ * /usr/bin/gnome-shell` and grepping the results for 'gSnap2'.
  */
 export function log(message: string): void {
     if(debug) {
-        console.warn("gSnap " + callSite(new Error().stack) + message);
+        console.warn("gSnap2 " + callSite(new Error().stack) + message);
     }
 }
 

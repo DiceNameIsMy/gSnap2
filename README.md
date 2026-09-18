@@ -1,17 +1,16 @@
-# gSnap
+# gSnap2
+
+For of https://github.com/GnomeSnapExtensions/gSnap.
 
 Gnome-shell extension that allows you to move windows into specific regions similiar to FancyZones on windows.
 
 This extension was built from gTile, stripped it down and changed it to work like FancyZones.  Thanks to all the folks
 that worked on gTile as it made my process of developing this much easier.
 
-This extensions is developed in freetime.  Developer got to eat, if you like it, consider buying me a coffee :)
-
-[!["Buy Me A Coffee"](https://www.buymeacoffee.com/assets/img/custom_images/orange_img.png)](https://www.buymeacoffee.com/micahosborne)
 
 ## Installation
 
-[Install From The Gnome Extensions Page](https://extensions.gnome.org/extension/4442/gsnap/)
+[Install From The Gnome Extensions Page](https://extensions.gnome.org/extension/4442/gsnap2/)
 
 
 ### Installation from source
@@ -19,16 +18,16 @@ Follow the [Development](./DEVELOPING.md) docs.
 
 ### Debugging
 
-If you encounter buggy behavior, it may help to view the log messages gSnap
+If you encounter buggy behavior, it may help to view the log messages gSnap2
 writes. These may be viewed with the following shell command:
 
 ```shell
-journalctl --follow /usr/bin/gnome-shell | grep "gSnap"
+journalctl --follow /usr/bin/gnome-shell | grep "gSnap2"
 ```
 
 ## Configuration
 
-For configuration, please use the built-in preferences dialog (Gnome Tweak Tool -> Extensions -> gSnap -> Preferences).
+For configuration, please use the built-in preferences dialog (Gnome Tweak Tool -> Extensions -> gSnap2 -> Preferences).
 
 * Keyboard shortcuts:
   * Currently you can switch between preconfigured layouts
@@ -43,14 +42,14 @@ To edit a layout follow the instructions below
 
 When done click "Stop Editing"
 
-Layouts are stored in the default config dir (usually `~/.config/gSnap`). This directory 
+Layouts are stored in the default config dir (usually `~/.config/gSnap2`). This directory 
 should be user-writable, to save the layouts changes.
 ```shell
-gedit ~/.config/gSnap/layouts.json 
+gedit ~/.config/gSnap2/layouts.json 
 ```
 
 Previous versions of the extensions used to store the layouts file in the extension directory 
-(`~/.local/share/gnome-shell/extensions/gSnap@micahosborne/`). This has been deprecated to allow 
+(`~/.local/share/gnome-shell/extensions/gSnap2@dicenameismy/`). This has been deprecated to allow 
 for the extension to be installed as a system package. When upgrading, the extension will copy 
 the old file and save it in the new path.
 
@@ -128,11 +127,11 @@ Shortcut | Description
 
 ## Source code
 
-This extension is developed at [GitHub](https://github.com/micahosborne/gSnap).
+This extension is developed at [GitHub](https://github.com/dicenameismy/gSnap2).
 
 gTile was the basis for which I started at [GitHub](https://github.com/gTile/gtile).
 
-gSnap is licensed under the [GPL v2+](https://www.gnu.org/licenses/gpl-2.0.html)
+gSnap2 is licensed under the [GPL v2+](https://www.gnu.org/licenses/gpl-2.0.html)
 
 For debugging, enable debug in preferences, and in terminal run journalctl /usr/bin/gnome-shell -f
 

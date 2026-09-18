@@ -10,7 +10,7 @@ export class LayoutsUtils {
     }
 
     get configPath() {
-        return GLib.build_pathv('/', [GLib.get_user_config_dir(), 'gSnap']);
+        return GLib.build_pathv('/', [GLib.get_user_config_dir(), 'gSnap2']);
     }
 
     get layoutsPath() {

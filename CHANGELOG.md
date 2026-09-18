@@ -60,7 +60,7 @@ CHANGE LOG
     
 ### V10
  
--   Now gSnap follows your focus window !! Thanks to Claus Beerta he implements it in a branch.
+-   Now gSnap2 follows your focus window !! Thanks to Claus Beerta he implements it in a branch.
 -   I change the implementation so that it works with  multi-screen and I also added animations.
     
 ### V9

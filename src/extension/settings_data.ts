@@ -265,7 +265,7 @@ export class ParsedSettings {
     /** Hold Super to prevent snapping windows */
     ["prevent-snapping"]: boolean = false;
 
-    /** Show gSnap icon on a panel. */
+    /** Show gSnap2 icon on a panel. */
     ["show-icon"]: boolean = true;
 
     /** Show tabs for windows in each zone. */

@@ -35,7 +35,7 @@ export class ShellVersion {
         }
         this.major = parts[0];
         this.minor = parts[1];
-        // Tolerate "40.alpha.1" for example. See https://github.com/gSnap/gSnap/issues/187.
+        // Tolerate "40.alpha.1" for example.
         if (isNaN(this.minor)) {
             this.minor = 0;
         }

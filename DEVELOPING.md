@@ -1,4 +1,4 @@
-# gSnap development
+# gSnap2 development
 
 ### Installation from Source
 
@@ -8,7 +8,7 @@ easy:
 1. Clone the repository to a folder of your choice.
 
 ```shell
-git clone https://github.com/GnomeSnapExtensions/gSnap.git
+git clone https://github.com/DiceNameIsMy/gSnap2.git
 ```
 
 2. Install dependencies.
@@ -23,7 +23,7 @@ git clone https://github.com/GnomeSnapExtensions/gSnap.git
    
 3. Build and install
    Then, you can run the installation script to install to 
-   `$HOME/.local/share/gnome-shell/extensions/gSnap@micahosborne`.
+   `$HOME/.local/share/gnome-shell/extensions/gSnap2@dicenameismy`.
    
    ```shell
    npm run install-extension
@@ -45,7 +45,7 @@ Both can be configured by editing **tsconfig.json** and **rollup.config.js**
 Generally, 
 
 1. Code
-2. Run `npm run gen-schemas` (if you modified [the schema](/src/schemas/org.gnome.shell.extensions.gsnap.gschema.xml))
+2. Run `npm run gen-schemas` (if you modified [the schema](/src/schemas/org.gnome.shell.extensions.gsnap2.gschema.xml))
 3. Run the `npm run install-extension` command to build and install the extension.
 4. If 2 succeeded, hit `Alt`+`F2`, type `r`, and hit enter.
 
