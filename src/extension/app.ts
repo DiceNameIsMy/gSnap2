@@ -21,6 +21,7 @@ import { LayoutNameDialog } from "./dialogs";
 
 import {
     Display,
+    MaximizeFlags,
     MetaSizeChange,
     Rectangle,
     Window,
@@ -552,19 +553,26 @@ export default class App extends Extension {
         let x = frameRect.x + (frameRect.width / 2);
         let y = frameRect.y + (frameRect.height / 2);
 
-        // add/remove 2 to avoid zone not being recognized due to rounding errors
+        // Move the center position to outside of the window
         switch (direction) {
+            // add/remove 2 to avoid zone not being recognized due to rounding errors
+
+            // min/max the point in order stay within the screen bounds
             case MoveDirection.Up:
-                y = frameRect.y - (2 + zoneManager.margin);
+                const minHeight = zoneManager.y + 2;
+                y = Math.max(frameRect.y - (2 + zoneManager.margin), minHeight);
                 break;
             case MoveDirection.Down:
-                y = frameRect.y + frameRect.height + (2 + zoneManager.margin);
+                const maxHeight = zoneManager.y + zoneManager.height - 2;
+                y = Math.min(frameRect.y + frameRect.height + (2 + zoneManager.margin), maxHeight);
                 break;
             case MoveDirection.Left:
-                x = frameRect.x - (2 + zoneManager.margin);
+                const minWidth = zoneManager.x + 2;
+                x = Math.max(frameRect.x - (2 + zoneManager.margin), minWidth);
                 break;
             case MoveDirection.Right:
-                x = frameRect.x + frameRect.width + (2 + zoneManager.margin);
+                const maxWidth = zoneManager.x + zoneManager.width - 2;
+                x = Math.min(frameRect.x + frameRect.width + (2 + zoneManager.margin), maxWidth);
                 break;
         }
 
@@ -583,6 +591,9 @@ export default class App extends Extension {
 
     private moveWindow(window: Window, x: number, y: number, width: number, height: number) {
         log(`moveWindow moving to x:${x}, y:${y}`);
+        if (window.maximized_horizontally || window.maximized_vertically) {
+            window.unmaximize(MaximizeFlags.BOTH);
+        }
         if (getBoolSetting(SETTINGS.ANIMATIONS_ENABLED)) {
             const windowActor = window.get_compositor_private();
             windowActor.remove_all_transitions();
