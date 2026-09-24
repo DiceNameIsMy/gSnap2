@@ -335,8 +335,8 @@ export default class App extends Extension {
         global.display.connect('in-fullscreen-changed', (_display: Display) => {
             activeMonitors().forEach(m => {
                 if (global.display.get_monitor_in_fullscreen(m.index)) {
-                    this.tabManager[m.index]?.destroy();
-                    this.tabManager[m.index] = null;
+                    // Keep zones available for other windows above the fullscreen window.
+                    this.tabManager[m.index]?.hide();
                 } else {
                     this.setToCurrentWorkspace(m.index);
                 }
