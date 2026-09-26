@@ -1,10 +1,16 @@
 // @ts-ignore
 import GLib from 'gi://GLib';
+// @ts-ignore
+import Gio from 'gi://Gio';
 
 import { LayoutsSettings } from "./layouts";
-import { log } from "./logging";
+import { log, logError } from "./logging";
+import { validateLayouts } from "./monitor_profiles";
 
 export class LayoutsUtils {
+    public writable = true;
+    private legacySource: string | null = null;
+
     constructor(private basePath: string) {
 
     }
@@ -23,55 +29,55 @@ export class LayoutsUtils {
         this.saveSettings(defaults);
     }
 
-    public saveSettings(layouts: LayoutsSettings) {
-        log('Saving LayoutSettings');
-        log(JSON.stringify(layouts));
-
-        // 493 dec is 755 octal
-        if(GLib.mkdir_with_parents(this.configPath, 493) === 0) {
-            GLib.file_set_contents(this.layoutsPath, JSON.stringify(layouts));
-        };
+    public saveSettings(layouts: LayoutsSettings): boolean {
+        if (!this.writable) {
+            logError('persist-blocked', new Error('Original settings could not be loaded; repair the file and restart the extension'));
+            return false;
+        }
+        try {
+            if (GLib.mkdir_with_parents(this.configPath, 448) !== 0) throw new Error('Cannot create settings directory');
+            if (layouts.version === 2 && this.legacySource) {
+                // Never overwrite a previous backup. Each attempted migration
+                // has its own copy of the original bytes, including whitespace.
+                const backupPath = `${this.layoutsPath}.v1-${GLib.uuid_string_random()}.bak`;
+                if (!Gio.File.new_for_path(this.legacySource).copy(Gio.File.new_for_path(backupPath),
+                    Gio.FileCopyFlags.NONE, null, null)) throw new Error('Legacy backup failed');
+                log(`migration-backup ${backupPath}`);
+            }
+            const [ok] = Gio.File.new_for_path(this.layoutsPath).replace_contents(
+                JSON.stringify(layouts), null, false, Gio.FileCreateFlags.PRIVATE | Gio.FileCreateFlags.REPLACE_DESTINATION, null);
+            if (!ok) throw new Error('Atomic settings replacement failed');
+            this.legacySource = null;
+            log(`persist version=${layouts.version} profiles=${Object.keys(layouts.profiles || {}).length}`);
+            return true;
+        } catch (error) {
+            logError('persist-failed', error);
+            return false;
+        }
     }
 
     public loadLayoutSettings(): LayoutsSettings {
-        log('Loading LayoutSettings');
-        let layoutsv1 = this._loadLayoutsV1();
-        if (layoutsv1) return layoutsv1;
-
-        layoutsv1 = this._loadLayoutsV1FromExtensionDir();
-        if (layoutsv1) return layoutsv1;
-
-        layoutsv1 = this._getDefaultLayoutsV1();
-
-        return layoutsv1;
-    }
-
-    private _loadLayoutsV1(): LayoutsSettings | null {
-        return this._loadFromJsonFile(this.layoutsPath);
-    }
-
-    private _loadLayoutsV1FromExtensionDir(): LayoutsSettings | null {
-        const oldLayoutsPath = GLib.build_filenamev([this.basePath, 'layouts.json']);
-        return this._loadFromJsonFile(oldLayoutsPath);
-    }
-
-    private _loadFromJsonFile(filePath: string): LayoutsSettings | null
-    {
-        try {
-            if(!GLib.file_test(filePath, GLib.FileTest.EXISTS)) return null;
-
-            let [ok, contents] = GLib.file_get_contents(filePath);
-
-            if (ok) {
-                log(`Found in ${filePath}`);
-                const decoder = new TextDecoder('utf-8');
-                let contentsString = decoder.decode(contents);
-                return JSON.parse(contentsString);
+        this.writable = true;
+        this.legacySource = null;
+        const candidates = [this.layoutsPath, GLib.build_filenamev([this.basePath, 'layouts.json'])];
+        for (const path of candidates) {
+            if (!GLib.file_test(path, GLib.FileTest.EXISTS)) continue;
+            try {
+                const [ok, contents] = GLib.file_get_contents(path);
+                if (!ok) throw new Error(`Cannot read ${path}`);
+                const settings = validateLayouts(JSON.parse(new TextDecoder('utf-8').decode(contents)));
+                if (settings.version !== 2) this.legacySource = path;
+                log(`settings-loaded path=${path} version=${settings.version || 1}`);
+                return settings;
+            } catch (error) {
+                // Do not fall through and later overwrite a damaged file with defaults.
+                this.writable = false;
+                logError('settings-load-failed', error);
+                return this._getDefaultLayoutsV1();
             }
-        } catch (exception) {
-            log(JSON.stringify(exception));
         }
-        return null;
+        const defaults = this._getDefaultLayoutsV1();
+        return { version: 2, profiles: {}, definitions: defaults.definitions };
     }
 
     private _getDefaultLayoutsV1(): LayoutsSettings {

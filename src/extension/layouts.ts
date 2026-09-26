@@ -12,8 +12,19 @@ export interface Layout extends LayoutItem {
     name: string,
 };
 
+export interface MonitorProfile {
+    connector: string;
+    vendor: string;
+    product: string;
+    serial: string;
+    name: string;
+    current: number;
+}
+
 export interface LayoutsSettings {
-    workspaces: WorkspaceMonitorSettings[][],
+    version?: 1 | 2,
+    workspaces?: WorkspaceMonitorSettings[][],
+    profiles?: Record<string, MonitorProfile>,
     definitions: Layout[]
 };
 

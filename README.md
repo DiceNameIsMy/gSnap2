@@ -18,6 +18,10 @@ Follow the [Development](./DEVELOPING.md) docs.
 
 ### Debugging
 
+For display-layout persistence, use the [manual test and diagnostic guide](docs/monitor-layout-testing.md).
+It includes a report command whose output can be pasted into a bug report.
+
+
 If you encounter buggy behavior, it may help to view the log messages gSnap2
 writes. These may be viewed with the following shell command:
 
@@ -26,6 +30,14 @@ journalctl --follow /usr/bin/gnome-shell | grep "gSnap2"
 ```
 
 ## Configuration
+
+Layout selections are remembered per physical display across all workspaces.
+Choose a layout under the display's name in the extension menu. Reconnecting a
+known display restores its choice, regardless of its current index or primary
+status. The first upgrade backs up the old settings before migrating connected
+displays from the active workspace. See the [testing guide](docs/monitor-layout-testing.md)
+for connector fallback behavior and recovery instructions.
+
 
 For configuration, please use the built-in preferences dialog (Gnome Tweak Tool -> Extensions -> gSnap2 -> Preferences).
 

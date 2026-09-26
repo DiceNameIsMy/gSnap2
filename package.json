@@ -16,6 +16,8 @@
         "build": "tsc && rollup --config rollup.config.js",
         "install-extension": "npm run build && bash install-extension.sh",
         "pack": "cd dist && zip -r ../dist.zip *",
-        "gen-schemas": "glib-compile-schemas src/schemas/ && npx ts-node src/schemas/extract_settings_type_definition.ts --gschema_xml src/schemas/org.gnome.shell.extensions.gsnap2.gschema.xml --output_ts src/extension/settings_data.ts"
+        "gen-schemas": "glib-compile-schemas src/schemas/ && npx ts-node src/schemas/extract_settings_type_definition.ts --gschema_xml src/schemas/org.gnome.shell.extensions.gsnap2.gschema.xml --output_ts src/extension/settings_data.ts",
+        "test": "tsc --module commonjs --target es2019 --strict --outDir build/tests src/extension/monitor_profiles.ts src/extension/layouts.ts && node --test tests/*.test.cjs",
+        "test:storage": "tsc && node tests/storage_runner.cjs"
     }
 }

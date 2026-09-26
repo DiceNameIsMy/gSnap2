@@ -3,6 +3,8 @@ declare var global: any;
 // @ts-ignore
 import Gio from 'gi://Gio';
 // @ts-ignore
+import GLib from 'gi://GLib';
+// @ts-ignore
 import St from 'gi://St';
 // @ts-ignore
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
@@ -13,7 +15,7 @@ import * as PopupMenu from 'resource:///org/gnome/shell/ui/popupMenu.js';
 // @ts-ignore
 import { Extension, gettext as _ } from 'resource:///org/gnome/shell/extensions/extension.js';
 
-import { log } from './logging';
+import { log, logError } from './logging';
 import { ShellVersion } from './shellversion';
 import { bind as bindHotkeys, unbind as unbindHotkeys, Bindings } from './hotkeys';
 import { ZoneEditor, ZonePreview, TabbedZoneManager, ZoneManager } from "./editor";
@@ -46,8 +48,11 @@ import {
 
 import * as SETTINGS from './settings_data';
 
-import { cloneLayout, Layout, LayoutsSettings, WorkspaceMonitorSettings } from './layouts';
+import { cloneLayout, Layout, LayoutsSettings } from './layouts';
 import { LayoutsUtils } from './layouts_utils';
+import { readDisplayConfig } from './display_config';
+import { addConnectedProfiles, DiscoveryGeneration, migrateProfiles, MonitorBinding, NONE_LAYOUT,
+    profileFor, resolveMonitorBindings, selectedLayout } from './monitor_profiles';
 import ModifiersManager, { MODIFIERS_ENUM } from './modifiers';
 
 /*****************************************************************
@@ -96,12 +101,15 @@ export default class App extends Extension {
 
 
     private currentLayoutIdxPerMonitor: number[];
+    private monitorBindings: MonitorBinding[] = [];
+    private discovery = new DiscoveryGeneration();
+    private discoverySource = 0;
+    private discoveryCancellable: any = null;
+    private displaySignals: number[] = [];
+    private profilesReady = false;
     public layouts: LayoutsSettings = {
-        // [workspaceindex][monitorindex]
-        workspaces: [
-            [{ current: 0 }, { current: 0 }],
-            [{ current: 0 }, { current: 0 }]
-        ],
+        version: 2,
+        profiles: {},
         definitions: [
             {
                 type: 0,
@@ -242,38 +250,103 @@ export default class App extends Extension {
     }
 
     setLayout(layoutIndex: number, monitorIndex = -1) {
-        if (this.layouts.definitions.length <= layoutIndex) {
+        if (!Number.isInteger(layoutIndex) || layoutIndex < 0 || layoutIndex >= this.layouts.definitions.length) return;
+        if (monitorIndex === -1) monitorIndex = getFocusedWindowMonitorIndex();
+        const binding = this.monitorBindings.find(display => display.index === monitorIndex);
+        if (!this.profilesReady || !binding || !this.layoutsUtils.writable) {
+            logError('selection-blocked', new Error('Display identification or settings recovery is pending'));
             return;
         }
-
-        if (this.layouts.workspaces == null) {
-            this.layouts.workspaces = [];
+        const previous = this.layouts.profiles![binding.key];
+        this.layouts.profiles![binding.key] = profileFor(binding, layoutIndex);
+        if (!this.layoutsUtils.saveSettings(this.layouts)) {
+            this.layouts.profiles![binding.key] = previous;
+            return;
         }
+        log(`selection workspace=${WorkspaceManager.get_active_workspace().index()} index=${monitorIndex} connector=${binding.connector} key=${binding.key} layout=${layoutIndex}`);
+        this.applyLayout(layoutIndex, monitorIndex);
+        this.reloadMenu();
+    }
 
-        if (monitorIndex === -1) {
-            monitorIndex = getFocusedWindowMonitorIndex();
-        }
-
+    private applyLayout(layoutIndex: number, monitorIndex: number) {
+        const monitor = activeMonitors()[monitorIndex];
+        if (!monitor) return;
         this.currentLayoutIdxPerMonitor[monitorIndex] = layoutIndex;
-
-        let workspaceIndex = WorkspaceManager.get_active_workspace().index();
-
-        this.trySetWorkspaceMonitorLayout(workspaceIndex, monitorIndex, layoutIndex);
-        this.saveLayouts();
-
         this.tabManager[monitorIndex]?.destroy();
         this.tabManager[monitorIndex] = null;
-        
+        const layout = this.layouts.definitions[layoutIndex] || NONE_LAYOUT;
         const animationsEnabled = getBoolSetting(SETTINGS.ANIMATIONS_ENABLED);
-
-        if (gridSettings[SETTINGS.SHOW_TABS]) {
-            this.tabManager[monitorIndex] = new TabbedZoneManager(activeMonitors()[monitorIndex], this.layouts.definitions[layoutIndex], gridSettings[SETTINGS.WINDOW_MARGIN], animationsEnabled);
-        } else {
-            this.tabManager[monitorIndex] = new ZoneManager(activeMonitors()[monitorIndex], this.layouts.definitions[layoutIndex], gridSettings[SETTINGS.WINDOW_MARGIN], animationsEnabled);
-        }
-
+        this.tabManager[monitorIndex] = gridSettings[SETTINGS.SHOW_TABS]
+            ? new TabbedZoneManager(monitor, layout, gridSettings[SETTINGS.WINDOW_MARGIN], animationsEnabled)
+            : new ZoneManager(monitor, layout, gridSettings[SETTINGS.WINDOW_MARGIN], animationsEnabled);
         this.tabManager[monitorIndex]?.layoutWindows();
+    }
+
+    private clearMonitorResources() {
+        this.preview.forEach(preview => preview?.destroy());
+        this.editor.forEach(editor => editor?.destroy());
+        this.tabManager.forEach(manager => manager?.destroy());
+        this.preview = [];
+        this.editor = [];
+        this.tabManager = [];
+        this.currentLayoutIdxPerMonitor = [];
+        this.unminimizeAllWindows();
+    }
+
+    private scheduleMonitorRefresh(reason: string) {
+        const generation = this.discovery.invalidate();
+        this.discoveryCancellable?.cancel();
+        this.discoveryCancellable = null;
+        if (this.discoverySource) GLib.Source.remove(this.discoverySource);
+        this.profilesReady = false;
+        this.monitorBindings = [];
+        this.clearMonitorResources();
+        // No old index-to-display association is usable during a transition.
+        activeMonitors().forEach(monitor => this.applyLayout(-1, monitor.index));
         this.reloadMenu();
+        this.discoverySource = GLib.timeout_add(GLib.PRIORITY_DEFAULT, 150, () => {
+            this.discoverySource = 0;
+            void this.refreshMonitorProfiles(reason, generation);
+            return GLib.SOURCE_REMOVE;
+        });
+    }
+
+    private refreshMonitorProfiles(reason: string, generation: number): Promise<void> {
+        const cancellable = new Gio.Cancellable();
+        this.discoveryCancellable = cancellable;
+        log(`discovery-start reason=${reason} generation=${generation}`);
+        return readDisplayConfig(cancellable).then(state => {
+            if (!this.isEnabled || !this.discovery.isCurrent(generation)) return;
+            const bindings = resolveMonitorBindings(state, activeMonitors(), this.layouts.profiles);
+            if (!bindings.length) return; // Do not migrate while the screen is temporarily absent.
+            const workspace = WorkspaceManager.get_active_workspace().index();
+            const migrating = this.layouts.version !== 2;
+            // Copy so failed writes cannot become the in-memory source of truth.
+            const candidate = migrateProfiles(JSON.parse(JSON.stringify(this.layouts)), bindings, workspace);
+            const added = addConnectedProfiles(candidate, bindings);
+            if (!this.layoutsUtils.writable) throw new Error('Settings file needs recovery before profiles can be restored');
+            if ((migrating || added) && !this.layoutsUtils.saveSettings(candidate)) throw new Error('Profile migration/creation could not be persisted');
+            this.layouts = candidate;
+            this.monitorBindings = bindings;
+            this.profilesReady = true;
+            if (migrating) log(`migration-complete workspace=${workspace}`);
+            for (const binding of bindings) {
+                log(`mapping reason=${reason} serial=${state[0]} workspace=${workspace} index=${binding.index} connector=${binding.connector} key=${binding.key} match=${binding.reason} mirrors=${JSON.stringify(binding.mirrored)}`);
+            }
+            this.clearMonitorResources();
+            this.setToCurrentWorkspace();
+            this.reloadMenu();
+        }).catch(error => {
+            if (!this.isEnabled || !this.discovery.isCurrent(generation)) return;
+            logError(`discovery-failed reason=${reason} fallback=None`, error);
+            this.profilesReady = false;
+            this.monitorBindings = [];
+            this.clearMonitorResources();
+            activeMonitors().forEach(monitor => this.applyLayout(-1, monitor.index));
+            this.reloadMenu();
+        }).finally(() => {
+            if (this.discoveryCancellable === cancellable) this.discoveryCancellable = null;
+        });
     }
 
     showLayoutPreview(monitorIndex: number, layout: Layout) {
@@ -308,31 +381,24 @@ export default class App extends Extension {
 
         this.layouts = this.layoutsUtils.loadLayoutSettings();
         log(JSON.stringify(this.layouts));
-        if (this.refreshLayouts()) {
-            this.saveLayouts();
-        }
-
-        this.setToCurrentWorkspace();
+        this.profilesReady = false;
+        this.monitorBindings = [];
+        activeMonitors().forEach(monitor => this.applyLayout(-1, monitor.index));
         this.monitorsChangedConnect = Main.layoutManager.connect(
-            'monitors-changed', () => {
-                activeMonitors().forEach(m => {
-                    this.tabManager[m.index]?.layoutWindows();
-                });
-                this.reloadMenu();
-            });
+            'monitors-changed', () => this.scheduleMonitorRefresh('monitors-changed'));
 
         const validWindow = (window: Window): boolean => window != null
             && window.get_window_type() == WindowType.NORMAL;
 
-        global.display.connect('window-created', (_display: Display, win: Window) => {
+        this.displaySignals.push(global.display.connect('window-created', (_display: Display, win: Window) => {
             if (validWindow(win)) {
                 activeMonitors().forEach(m => {
                     this.tabManager[m.index]?.layoutWindows();
                 });
             }
-        });
+        }));
 
-        global.display.connect('in-fullscreen-changed', (_display: Display) => {
+        this.displaySignals.push(global.display.connect('in-fullscreen-changed', (_display: Display) => {
             activeMonitors().forEach(m => {
                 if (global.display.get_monitor_in_fullscreen(m.index)) {
                     // Keep zones available for other windows above the fullscreen window.
@@ -341,10 +407,10 @@ export default class App extends Extension {
                     this.setToCurrentWorkspace(m.index);
                 }
             });
-        });
+        }));
     
 
-        global.display.connect('grab-op-begin', (_display: Display, win: Window) => {
+        this.displaySignals.push(global.display.connect('grab-op-begin', (_display: Display, win: Window) => {
             // only start isGrabbing if is a valid window to avoid conflict 
             // with dash-to-panel/appIcons.js:1021 where are emitting a grab-op-begin
             // without never emitting a grab-op-end
@@ -368,9 +434,9 @@ export default class App extends Extension {
                 this.tabManager[m.index]?.allow_multiple_zones_selection(spanMultipleZones);
                 this.tabManager[m.index]?.show();
             });
-        });
+        }));
 
-        global.display.connect('grab-op-end', (_display: Display, win: Window) => {
+        this.displaySignals.push(global.display.connect('grab-op-end', (_display: Display, win: Window) => {
             const useModifier = getBoolSetting(SETTINGS.USE_MODIFIER);
             const preventSnapping = getBoolSetting(SETTINGS.PREVENT_SNAPPING);
 
@@ -409,7 +475,7 @@ export default class App extends Extension {
                     trackedWindows.splice(trackedWindows.indexOf(win), 1);
                 }
             });
-        });
+        }));
 
         if (getBoolSetting(SETTINGS.USE_MODIFIER) || getBoolSetting(SETTINGS.SPAN_MULTIPLE_ZONES)
             || getBoolSetting(SETTINGS.PREVENT_SNAPPING)) {
@@ -455,16 +521,8 @@ export default class App extends Extension {
         });
 
         this.workspaceSwitchedConnect = WorkspaceManager.connect('workspace-switched', () => {
-            if (this.refreshLayouts()) {
-                this.saveLayouts();
-            }
-
-            activeMonitors().forEach(m => {
-                this.tabManager[m.index]?.destroy();
-                this.tabManager[m.index] = null;
-            });
-
             this.setToCurrentWorkspace();
+            this.reloadMenu();
         });
 
         this.workareasChangedConnect = global.display.connect('workareas-changed', () => {
@@ -488,6 +546,7 @@ export default class App extends Extension {
 
         this.isEnabled = true;
 
+        this.scheduleMonitorRefresh("enable");
         log("Extension enable completed");
     }
 
@@ -498,32 +557,6 @@ export default class App extends Extension {
             this.enable();
         }
         log("changed_settings complete");
-    }
-
-    refreshLayouts(): boolean {
-        let changed = false;
-
-        // A workspace could have been added. Populate the layouts.workspace array
-        let nWorkspaces = WorkspaceManager.get_n_workspaces();
-        let nMonitors = activeMonitors().length;
-        log(`refreshLayouts ${this.layouts.workspaces.length} ${nWorkspaces} ${nMonitors}`)
-        while (this.layouts.workspaces.length < nWorkspaces) {
-            let wk = new Array<WorkspaceMonitorSettings>(nMonitors);
-            wk.fill({ current: 0 });
-            this.layouts.workspaces.push(wk);
-            changed = true;
-        }
-
-        // A monitor could have been added, cycle each workspace and push a new monitor if needed
-        for (let i = 0; i < this.layouts.workspaces.length; i++) {
-            let workspace = this.layouts.workspaces[i];
-            while (workspace.length < nMonitors) {
-                workspace.push({ current: 0 });
-                changed = true;
-            }
-        }
-
-        return changed;
     }
 
     moveFocusedWindow(direction: MoveDirection) {
@@ -608,29 +641,6 @@ export default class App extends Extension {
         window.move_resize_frame(true, x, y, width, height);
     }
 
-    private getWorkspaceMonitorSettings(workspaceIdx: number): Array<WorkspaceMonitorSettings> {
-        if (this.layouts.workspaces[workspaceIdx] === undefined) {
-            let wk = new Array<WorkspaceMonitorSettings>(activeMonitors().length);
-            wk.fill({ current: 0 });
-            this.layouts.workspaces[workspaceIdx] = wk;
-        }
-        return this.layouts.workspaces[workspaceIdx];
-    }
-
-    private getWorkspaceMonitorCurrentLayoutOrDefault(workspaceIdx: number, monitorIdx: number): number {
-        let workspaceMonitorSettings = this.getWorkspaceMonitorSettings(workspaceIdx);
-        return workspaceMonitorSettings[monitorIdx]
-            ? workspaceMonitorSettings[monitorIdx].current
-            : 0;
-    }
-
-    private trySetWorkspaceMonitorLayout(workspaceIdx: number, monitorIdx: number, currentLayout: number) {
-        let workspaceMonitorSettings = this.getWorkspaceMonitorSettings(workspaceIdx);
-        if (workspaceMonitorSettings[monitorIdx]) {
-            workspaceMonitorSettings[monitorIdx].current = currentLayout;
-        }
-    }
-
     minimizeAllWindows() {
         // we need to know what windows have been minimized by the user
         // so we don't accidentally restore them when calling unminimizeAllWindows()
@@ -662,6 +672,13 @@ export default class App extends Extension {
     reloadMenu() {
         if (this.indicator == null) return;
         this.indicator.menu.removeAll();
+        if (!this.profilesReady) {
+            const status = new PopupMenu.PopupMenuItem(_('Display layouts unavailable — retry or check logs'), { reactive: false });
+            this.indicator.menu.addMenuItem(status);
+            this.indicator.menu.addAction(_('Retry display detection'), () => this.scheduleMonitorRefresh('manual-retry'));
+            this.indicator.menu.addAction(_('Settings'), () => super.openPreferences());
+            return;
+        }
         let resetLayoutButton = new PopupMenu.PopupMenuItem(_("Reset Layout"));
         let editLayoutButton = new PopupMenu.PopupMenuItem(_("Edit Layout"));
         let saveLayoutButton = new PopupMenu.PopupMenuItem(_("Save Layout"));
@@ -669,27 +686,23 @@ export default class App extends Extension {
         let newLayoutButton = new PopupMenu.PopupMenuItem(_("Create New Layout"));
 
         const currentMonitorLayoutIdx = this.currentLayoutIdxPerMonitor[getMousePointerMonitorIndex()];
-        const currentLayout = this.layouts.definitions[currentMonitorLayoutIdx];
+        const currentLayout = this.layouts.definitions[currentMonitorLayoutIdx] || NONE_LAYOUT;
         let renameLayoutButton = new PopupMenu.PopupMenuItem(_("Rename: " + currentLayout.name));
 
+        renameLayoutButton.setSensitive(currentMonitorLayoutIdx >= 0);
+        editLayoutButton.setSensitive(activeMonitors().every(monitor => this.currentLayoutIdxPerMonitor[monitor.index] >= 0));
         let currentMonitorIndex = getMousePointerMonitorIndex();
         if (this.editor[currentMonitorIndex] != null) {
             this.indicator.menu.addMenuItem(resetLayoutButton);
             this.indicator.menu.addMenuItem(saveLayoutButton);
             this.indicator.menu.addMenuItem(cancelEditingButton);
         } else {
-            const monitorsCount = activeMonitors().length;
-            for (let mI = 0; mI < monitorsCount; mI++) {
-                if (monitorsCount > 1) {
-                    let monitorName = new PopupMenu.PopupSubMenuMenuItem(_(`Monitor ${mI}`));
-                    this.indicator.menu.addMenuItem(monitorName);
-
-                    this.createLayoutMenuItems(mI).forEach(i =>
-                        (<any>monitorName).menu.addMenuItem(i));
-                } else {
-                    this.createLayoutMenuItems(mI).forEach(i =>
-                        this.indicator?.menu.addMenuItem(i));
-                }
+            for (const binding of this.monitorBindings) {
+                const selected = this.layouts.definitions[this.currentLayoutIdxPerMonitor[binding.index]] || NONE_LAYOUT;
+                const mirrorLabel = binding.mirrored.length > 1 ? `; mirrored: ${binding.mirrored.join(', ')}` : '';
+                const monitorMenu = new PopupMenu.PopupSubMenuMenuItem(`${binding.name} (${binding.connector}${mirrorLabel}) — ${selected.name}`);
+                this.indicator.menu.addMenuItem(monitorMenu);
+                this.createLayoutMenuItems(binding.index).forEach(item => monitorMenu.menu.addMenuItem(item));
             }
 
             let sep = new PopupMenu.PopupSeparatorMenuItem();
@@ -714,6 +727,7 @@ export default class App extends Extension {
                 `Rename Layout ${currentMonitorLayout.name}`,
                 currentMonitorLayout.name,
                 (text: string) => {
+                    if (!this.profilesReady || !this.isEnabled || !this.layouts.definitions.includes(currentMonitorLayout)) return;
                     currentMonitorLayout.name = text;
                     this.saveLayouts();
                     this.reloadMenu();
@@ -726,6 +740,7 @@ export default class App extends Extension {
                 `Create new layout`,
                 'New Layout',
                 (text: string) => {
+                    if (!this.profilesReady || !this.isEnabled) return;
                     this.layouts.definitions.push({
                         name: text,
                         type: 0,
@@ -804,6 +819,7 @@ export default class App extends Extension {
         let items = [];
         for (let i = 0; i < this.layouts.definitions.length; i++) {
             let item = new PopupMenu.PopupMenuItem(_(this.layouts.definitions[i].name == null ? "Layout " + i : this.layouts.definitions[i].name));
+            if (this.currentLayoutIdxPerMonitor[monitorIndex] === i) item.setOrnament(PopupMenu.Ornament.DOT);
             item.connect('activate', () => {
                 this.setLayout(i, monitorIndex);
                 this.hideLayoutPreview();
@@ -820,6 +836,7 @@ export default class App extends Extension {
     }
 
     saveLayouts() {
+        if (!this.profilesReady || !this.layoutsUtils.writable) return;
         activeMonitors().forEach(m => {
             const idx = this.currentLayoutIdxPerMonitor[m.index];
             const editor = this.editor[m.index];
@@ -839,13 +856,20 @@ export default class App extends Extension {
 
     disable() {
         log("Extension disable begin");
+        this.discovery.invalidate();
+        this.discoveryCancellable?.cancel();
+        this.discoveryCancellable = null;
+        if (this.discoverySource) GLib.Source.remove(this.discoverySource);
+        this.discoverySource = 0;
+        this.profilesReady = false;
+        this.monitorBindings = [];
+        this.displaySignals.forEach(signal => global.display.disconnect(signal));
+        this.displaySignals = [];
         deinitSettings();
         this.settings = null;
         this.isEnabled = false;
         this.modifiersManager.destroy();
-        this.preview?.forEach(p => { p?.destroy(); p = null });
-        this.editor?.forEach(e => { e?.destroy(); e = null; });
-        this.tabManager?.forEach(t => { t?.destroy(); t = null });
+        this.clearMonitorResources();
 
         if (this.workspaceSwitchedConnect) {
             WorkspaceManager.disconnect(this.workspaceSwitchedConnect);
@@ -881,15 +905,16 @@ export default class App extends Extension {
     onFocus() { }
 
     private setToCurrentWorkspace(monitorIndex?: number) {
-        let currentWorkspaceIdx = WorkspaceManager.get_active_workspace().index();
-        if (monitorIndex !== undefined) {
-            let currentLayoutIdx = this.getWorkspaceMonitorCurrentLayoutOrDefault(currentWorkspaceIdx, monitorIndex);
-            this.setLayout(currentLayoutIdx, monitorIndex);
-        } else {
-            activeMonitors().forEach(m => {
-                let currentLayoutIdx = this.getWorkspaceMonitorCurrentLayoutOrDefault(currentWorkspaceIdx, m.index);
-                this.setLayout(currentLayoutIdx, m.index);
-            });
+        const monitors = activeMonitors().filter(monitor => monitorIndex === undefined || monitor.index === monitorIndex);
+        for (const monitor of monitors) {
+            const binding = this.monitorBindings.find(display => display.index === monitor.index);
+            const selected = this.profilesReady ? selectedLayout(this.layouts, binding) : -1;
+            const stored = binding ? this.layouts.profiles?.[binding.key]?.current : undefined;
+            if (stored !== undefined && (stored < 0 || stored >= this.layouts.definitions.length)) {
+                logError('restore-invalid-layout', new Error(`key=${binding!.key} stored=${stored} fallback=None`));
+            }
+            log(`restore workspace=${WorkspaceManager.get_active_workspace().index()} index=${monitor.index} key=${binding?.key || 'unresolved'} layout=${selected}`);
+            this.applyLayout(selected, monitor.index);
         }
     }
 }

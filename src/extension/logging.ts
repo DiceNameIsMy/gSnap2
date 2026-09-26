@@ -36,3 +36,12 @@ function callSite(stack: string | undefined): string {
     const match = callerFrame?.match(/([^/\\]+):(\d+):\d+\s*$/);
     return match ? `[${match[1]}:${match[2]}] ` : '';
 }
+
+/** Persistence/discovery failures must remain visible with debug disabled. */
+export function logError(event: string, error: unknown): void {
+    // GJS Error.stack contains frames without the message; GI errors may not
+    // inherit from JavaScript Error. Preserve both the message and any frames.
+    const stack = error && typeof error === 'object' && 'stack' in error
+        ? String((error as { stack?: unknown }).stack || '') : '';
+    console.error(`gSnap2 ${event}: ${String(error)}${stack ? '\n' + stack : ''}`);
+}
